@@ -82,6 +82,8 @@ def parse_args():
                         help="This file specifies the image ids you want to exclude.")
     parser.add_argument('--remove_overlapped', action='store_true',
                         help="Remove single boxes covered by group boxes.")
+    parser.add_argument("--max_images", type=int, default=10000,
+                        help="maximum number of images to download per class.")
     return parser.parse_args()
 
 
@@ -133,6 +135,13 @@ if __name__ == '__main__':
         image_dir = os.path.join(args.root, dataset_type)
         os.makedirs(image_dir, exist_ok=True)
 
+        sub_annotation_file = f"{args.root}/sub-{dataset_type}-annotations-bbox.csv"
+        if os.path.exists(sub_annotation_file):
+            #annotations = pd.read_csv(sub_annotation_file)
+            #image_files.extend(f"{dataset_type}/{id}.jpg" for id in set(annotations['ImageID']))
+            #continue
+            pass
+
         annotation_file = f"{args.root}/{dataset_type}-annotations-bbox.csv"
         if not os.path.exists(annotation_file):
             url = f"https://storage.googleapis.com/openimages/2018_04/{dataset_type}/{dataset_type}-annotations-bbox.csv"
@@ -155,11 +164,13 @@ if __name__ == '__main__':
                 excluded_images |= set(sub.loc[sub['IsGroupOf'] == 1, 'ImageID'])
             elif group_filter == 'group':
                 excluded_images |= set(sub.loc[sub['IsGroupOf'] == 0, 'ImageID'])
+            if sub.shape[0] > args.max_images:
+                logging.warning(f"{class_name} has more than {args.max_images} images, limiting to {args.max_images}")
+                sub = sub.sample(n=args.max_images)
             filtered.append(sub)
 
         annotations = pd.concat(filtered)
         annotations = annotations.loc[~annotations['ImageID'].isin(excluded_images), :]
-
 
         if args.remove_overlapped:
             images_with_group = annotations.loc[annotations['IsGroupOf'] == 1, 'ImageID']
@@ -174,11 +185,10 @@ if __name__ == '__main__':
 
         logging.warning(f"Shuffle dataset.")
 
-
-        sub_annotation_file = f"{args.root}/sub-{dataset_type}-annotations-bbox.csv"
         logging.warning(f"Save {dataset_type} data to {sub_annotation_file}.")
         annotations.to_csv(sub_annotation_file, index=False)
         image_files.extend(f"{dataset_type}/{id}.jpg" for id in set(annotations['ImageID']))
+
     logging.warning(f"Start downloading {len(image_files)} images.")
     batch_download(bucket, image_files, args.root, args.num_workers, args.retry)
     logging.warning("Task Done.")
